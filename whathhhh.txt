@@ -1,0 +1,537 @@
+#include <iostream>
+#include <string>
+#include <vector>
+#include <unordered_map>
+#include <algorithm>
+#include <iomanip>
+
+// Simple Library Management System (CLI)
+// Features:
+// - Add Book
+// - Register Member
+// - Borrow Book
+// - Return Book
+// - Search Books (by title/author)
+// - List all books / members
+// - View loans for a member
+
+using namespace std;
+
+struct Book {
+    string id;         // unique book id, e.g., "B1"
+    string title;
+    string author;
+    bool available;
+
+    Book() = default;
+    Book(string id, string title, string author)
+        : id(move(id)), title(move(title)), author(move(author)), available(true) {}
+};
+
+struct Member {
+    string id;         // unique member id, e.g., "M1"
+    string name;
+    // could add email/phone later
+
+    Member() = default;
+    Member(string id, string name) : id(move(id)), name(move(name)) {}
+};
+
+struct Loan {
+    string bookId;
+    string memberId;
+    // Could add dates (borrowed, due) later
+};
+
+class Library {
+    vector<Book> books_;
+    vector<Member> members_;
+    vector<Loan> loans_;
+
+    int nextBookId = 1;
+    int nextMemberId = 1;
+
+public:
+    // Add a book and return its generated id
+    string addBook(const string& title, const string& author) {
+        string id = "B" + to_string(nextBookId++);
+        books_.emplace_back(id, title, author);
+        return id;
+    }
+
+    // Register a member and return id
+    string registerMember(const string& name) {
+        string id = "M" + to_string(nextMemberId++);
+        members_.emplace_back(id, name);
+        return id;
+    }
+
+    // Search books by title (case-insensitive substring)
+    vector<Book> searchByTitle(const string& query) const {
+        string q = toLower(query);
+        vector<Book> res;
+        for (const auto& b : books_) {
+            if (toLower(b.title).find(q) != string::npos) res.push_back(b);
+        }
+        return res;
+    }
+
+    // Search books by author (case-insensitive substring)
+    vector<Book> searchByAuthor(const string& query) const {
+        string q = toLower(query);
+        vector<Book> res;
+        for (const auto& b : books_) {
+            if (toLower(b.author).find(q) != string::npos) res.push_back(b);
+        }
+        return res;
+    }
+
+    // List all books
+    void listBooks() const {
+        cout << left << setw(6) << "ID" << setw(30) << "Title" << setw(20) << "Author" << "Status\n";
+        cout << string(70, '-') << "\n";
+        for (const auto& b : books_) {
+            cout << left << setw(6) << b.id << setw(30) << b.title << setw(20) << b.author
+                 << (b.available ? "Available" : "Borrowed") << "\n";
+        }
+    }
+
+    // List members
+    void listMembers() const {
+        cout << left << setw(6) << "ID" << setw(30) << "Name" << "\n";
+        cout << string(40, '-') << "\n";
+        for (const auto& m : members_) {
+            cout << left << setw(6) << m.id << setw(30) << m.name << "\n";
+        }
+    }
+
+    // Borrow a book: returns true if success
+    bool borrowBook(const string& memberId, const string& bookId) {
+        auto* b = findBookById(bookId);
+        if (!b) {
+            cout << "Book not found.\n";
+            return false;
+        }
+        if (!b->available) {
+            cout << "Book is currently borrowed.\n";
+            return false;
+        }
+        if (!memberExists(memberId)) {
+            cout << "Member not found.\n";
+            return false;
+        }
+        b->available = false;
+        loans_.push_back(Loan{bookId, memberId});
+        cout << "Book " << bookId << " borrowed by " << memberId << ".\n";
+        return true;
+    }
+
+    // Return a book: returns true if success
+    bool returnBook(const string& bookId) {
+        auto* b = findBookById(bookId);
+        if (!b) {
+            cout << "Book not found.\n";
+            return false;
+        }
+        // find loan record
+        auto it = find_if(loans_.begin(), loans_.end(),
+                          [&](const Loan& l){ return l.bookId == bookId; });
+        if (it == loans_.end()) {
+            cout << "This book is not currently on loan.\n";
+            return false;
+        }
+        // remove loan and mark available
+        loans_.erase(it);
+        b->available = true;
+        cout << "Book " << bookId << " returned and is now available.\n";
+        return true;
+    }
+
+    // View loans by member
+    void viewLoansByMember(const string& memberId) const {
+        if (!memberExists(memberId)) {
+            cout << "Member not found.\n";
+            return;
+        }
+        cout << "Loans for member " << memberId << ":\n";
+        cout << left << setw(8) << "BookID" << setw(30) << "Title" << "\n";
+        cout << string(50, '-') << "\n";
+        bool found = false;
+        for (const auto& l : loans_) {
+            if (l.memberId == memberId) {
+                const Book* b = findBookByIdConst(l.bookId);
+                if (b) {
+                    cout << left << setw(8) << b->id << setw(30) << b->title << "\n";
+                    found = true;
+                }
+            }
+        }
+        if (!found) cout << "No active loans for this member.\n";
+    }
+
+private:
+    // helper: find book by id
+    Book* findBookById(const string& id) {
+        for (auto& b : books_) if (b.id == id) return &b;
+        return nullptr;
+    }
+    const Book* findBookByIdConst(const string& id) const {
+        for (const auto& b : books_) if (b.id == id) return &b;
+        return nullptr;
+    }
+    bool memberExists(const string& id) const {
+        for (const auto& m : members_) if (m.id == id) return true;
+        return false;
+    }
+    static string toLower(string s) {
+        transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return tolower(c); });
+        return s;
+    }
+};
+
+// ------------------- CLI -------------------
+void printMenu() {
+    cout << "\n===== Library Menu =====\n";
+    cout << "1. Add Book\n";
+    cout << "2. Register Member\n";
+    cout << "3. Borrow Book\n";
+    cout << "4. Return Book\n";
+    cout << "5. Search Books by Title\n";
+    cout << "6. Search Books by Author\n";
+    cout << "7. List All Books\n";
+    cout << "8. List Members\n";
+    cout << "9. View Member Loans\n";
+    cout << "0. Exit\n";
+    cout << "Choose an option: ";
+}
+
+int main() {
+    Library lib;
+
+    // Pre-populate with a few books/members for demo
+    string b1 = lib.addBook("The C++ Programming Language", "Bjarne Stroustrup");
+    string b2 = lib.addBook("Clean Code", "Robert C. Martin");
+    string b3 = lib.addBook("Design Patterns", "Gamma, Helm, Johnson, Vlissides");
+
+    string m1 = lib.registerMember("Alice Johnson");
+    string m2 = lib.registerMember("Bob Smith");
+
+    cout << "Demo setup: Added books " << b1 << ", " << b2 << ", " << b3 << "\n";
+    cout << "Demo setup: Registered members " << m1 << ", " << m2 << "\n";
+
+    while (true) {
+        printMenu();
+        int choice;
+        if (!(cin >> choice)) break;
+        cin.ignore(numeric_limits<streamsize>::max(), '\n'); // flush newline
+
+        if (choice == 0) {
+            cout << "Exiting. Goodbye!\n";
+            break;
+        }
+        else if (choice == 1) {
+            string title, author;
+            cout << "Enter book title: ";
+            getline(cin, title);
+            cout << "Enter author: ";
+            getline(cin, author);
+            string id = lib.addBook(title, author);
+            cout << "Added book with ID: " << id << "\n";
+        }
+        else if (choice == 2) {
+            string name;
+            cout << "Enter member name: ";
+            getline(cin, name);
+            string id = lib.registerMember(name);
+            cout << "Registered member with ID: " << id << "\n";
+        }
+        else if (choice == 3) {
+            string memberId, bookId;
+            cout << "Enter member ID: ";
+            getline(cin, memberId);
+            cout << "Enter book ID: ";
+            getline(cin, bookId);
+            lib.borrowBook(memberId, bookId);
+        }
+        else if (choice == 4) {
+            string bookId;
+            cout << "Enter book ID to return: ";
+            getline(cin, bookId);
+            lib.returnBook(bookId);
+        }
+        else if (choice == 5) {
+            string q;
+            cout << "Enter title query: ";
+            getline(cin, q);
+            auto results = lib.searchByTitle(q);
+            if (results.empty()) cout << "No books found.\n";
+            else {
+                cout << "Results:\n";
+                for (const auto& b : results) {
+                    cout << b.id << " | " << b.title << " by " << b.author
+                         << " | " << (b.available ? "Available" : "Borrowed") << "\n";
+                }
+            }
+        }
+        else if (choice == 6) {
+            string q;
+            cout << "Enter author query: ";
+            getline(cin, q);
+            auto results = lib.searchByAuthor(q);
+            if (results.empty()) cout << "No books found.\n";
+            else {
+                cout << "Results:\n";
+                for (const auto& b : results) {
+                    cout << b.id << " | " << b.title << " by " << b.author
+                         << " | " << (b.available ? "Available" : "Borrowed") << "\n";
+                }
+            }
+        }
+        else if (choice == 7) {
+            lib.listBooks();
+        }
+        else if (choice == 8) {
+            lib.listMembers();
+        }
+        else if (choice == 9) {
+            string memberId;
+            cout << "Enter member ID: ";
+            getline(cin, memberId);
+            lib.viewLoansByMember(memberId);
+        }
+        else {
+            cout << "Invalid option. Try again.\n";
+        }
+    }
+
+    return 0;
+}
+
+
+
+
+
+
+
+
+cocomo
+#include <iostream>
+#include <iomanip>
+#include <cmath>
+#include <string>
+#include <vector>
+using namespace std;
+
+/* =========================
+   COCOMO Estimation
+   ========================= */
+struct CocomoParams {
+    double a, b, c, d;
+    string name;
+};
+
+double estimateEffort(double KLOC, const CocomoParams &p) {
+    return p.a * pow(KLOC, p.b);
+}
+
+double estimateSchedule(double effort, const CocomoParams &p) {
+    return p.c * pow(effort, p.d);
+}
+
+/* =========================
+   Quality Planning (ISO-like)
+   ========================= */
+struct QualityObjective {
+    string description;
+    string metric;
+    double targetValue;
+};
+
+struct ComplianceItem {
+    string description;
+    bool completed;
+};
+
+void displayQualityObjectives(const vector<QualityObjective> &objectives) {
+    cout << "\n=== Quality Objectives (ISO/IEC 25010 Style) ===\n";
+    for (const auto &q : objectives) {
+        cout << "- " << q.description << " | Metric: " << q.metric
+             << " | Target: " << q.targetValue << endl;
+    }
+}
+
+void displayComplianceChecklist(const vector<ComplianceItem> &checklist) {
+    cout << "\n=== Compliance Checklist (ISO 9001) ===\n";
+    for (const auto &c : checklist) {
+        cout << "- " << c.description << " | Completed: "
+             << (c.completed ? "Yes" : "No") << endl;
+    }
+}
+
+/* =========================
+   Simple Library System
+   ========================= */
+struct Book {
+    int id;
+    string title;
+    string author;
+    bool borrowed;
+};
+
+class Library {
+private:
+    vector<Book> books;
+    int nextId;
+public:
+    Library() : nextId(1) {}
+
+    void addBook(const string &title, const string &author) {
+        books.push_back({nextId++, title, author, false});
+    }
+
+    void listBooks() {
+        cout << "\n=== Library Catalog ===\n";
+        cout << left << setw(6) << "ID" << setw(30) << "Title" 
+             << setw(20) << "Author" << "Status\n";
+        cout << "------------------------------------------------------------\n";
+        for (auto &b : books) {
+            cout << setw(6) << b.id << setw(30) << b.title 
+                 << setw(20) << b.author 
+                 << (b.borrowed ? "Borrowed" : "Available") << "\n";
+        }
+    }
+};
+
+/* =========================
+   MAIN FUNCTION
+   ========================= */
+int main() {
+    cout << fixed << setprecision(2);
+
+    // --- Step 1: Define project data
+    double KLOC = 400;
+    string mode = "Organic";
+
+    // --- Step 2: Define parameters for each mode
+    CocomoParams organic = {2.4, 1.05, 2.5, 0.38, "Organic"};
+    CocomoParams semi = {3.0, 1.12, 2.5, 0.35, "Semi-Detached"};
+    CocomoParams embedded = {3.6, 1.20, 2.5, 0.32, "Embedded"};
+
+    // --- Step 3: Choose mode and compute
+    CocomoParams p = organic;
+    double effort = estimateEffort(KLOC, p);
+    double schedule = estimateSchedule(effort, p);
+
+    // --- Step 4: Display results
+    cout << "=== Software Estimation using COCOMO ===\n";
+    cout << "Project Mode: " << p.name << endl;
+    cout << "Project Size: " << KLOC << " KLOC" << endl;
+    cout << "Estimated Effort: " << effort << " person-months\n";
+    cout << "Estimated Schedule: " << schedule << " months\n";
+    cout << "Average Team Size: " << effort / schedule << " persons\n";
+
+    // --- Step 5: Quality Planning (ISO)
+    vector<QualityObjective> objectives = {
+        {"Defect Density", "defects/KLOC", 0.5},
+        {"Requirements Traceability", "%", 100.0},
+        {"Complaint Response Time", "days", 5.0}
+    };
+    vector<ComplianceItem> checklist = {
+        {"Requirements validation documented", true},
+        {"Design review performed", false},
+        {"Testing covers all requirements", true},
+        {"ISO audit completed for this phase", false}
+    };
+
+    displayQualityObjectives(objectives);
+    displayComplianceChecklist(checklist);
+
+    // --- Step 6: Library demo
+    Library lib;
+    lib.addBook("The C++ Programming Language", "Bjarne Stroustrup");
+    lib.addBook("Clean Code", "Robert C. Martin");
+    lib.addBook("Design Patterns", "Gamma et al.");
+
+    lib.listBooks();
+
+    cout << "\n=== End of Simulation ===\n";
+    return 0;
+}
+     
+
+
+
+
+
+testing
+
+
+ #include <iostream>
+#include <cassert>
+#include <string>
+using namespace std;
+
+// Book class definition
+class Book {
+private:
+    int id;
+    string title;
+    bool isIssued;
+
+public:
+    Book(int id, string title) {
+        this->id = id;
+        this->title = title;
+        this->isIssued = false;
+    }
+
+    void issueBook() {
+        if (!isIssued) isIssued = true;
+    }
+
+    void returnBook() {
+        if (isIssued) isIssued = false;
+    }
+
+    bool getStatus() {
+        return isIssued;
+    }
+
+    string getTitle() {
+        return title;
+    }
+};
+
+// Function to simulate unit tests
+void runTests() {
+    cout << "Running Library System Tests...\n";
+
+    // Test 1: Add a book
+    Book b1(1, "C++ Programming");
+    assert(b1.getTitle() == "C++ Programming");
+    cout << "✔️ Test 1 Passed: Book added successfully\n";
+
+    // Test 2: Issue a book
+    b1.issueBook();
+    assert(b1.getStatus() == true);
+    cout << "✔️ Test 2 Passed: Book issued successfully\n";
+
+    // Test 3: Return a book
+    b1.returnBook();
+    assert(b1.getStatus() == false);
+    cout << "✔️ Test 3 Passed: Book returned successfully\n";
+
+    // Test 4: Issue-Return Cycle Check
+    b1.issueBook();
+    b1.returnBook();
+    assert(b1.getStatus() == false);
+    cout << "✔️ Test 4 Passed: Book issue-return cycle works correctly\n";
+
+    cout << "\n✅ All tests completed successfully!\n";
+}
+
+// Main function
+int main() {
+    runTests();
+    return 0;
+}
